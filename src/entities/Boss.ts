@@ -53,7 +53,7 @@ const STATE_BEHAVIORS: Record<string, BossStateBehavior> = {
 };
 
 export class Boss {
-  active = true;
+  active = false;
   x = 0;
   y = 0;
   w = 50;
@@ -74,7 +74,7 @@ export class Boss {
   reset(difficulty: number): void {
     this.active = true;
     this.x = W + 100;
-    this.y = GROUND_Y - this.h;
+    this.y = GROUND_Y - this.h + 12;
     this.w = 50;
     this.h = 60;
     const baseHp = Math.floor(18 + difficulty * 3);
@@ -121,8 +121,9 @@ export class Boss {
     }
 
     this.x += this.driftDir * 25 * dt;
-    if (this.x > W - 60) this.driftDir = -1;
-    if (this.x < W - 160) this.driftDir = 1;
+    /* Sweep range reaches the player zone (player is pinned at x≈120) so stomping is possible */
+    if (this.x > W - 80) this.driftDir = -1;
+    if (this.x < 90) this.driftDir = 1;
 
     const behavior = STATE_BEHAVIORS[this.state];
     if (behavior) {

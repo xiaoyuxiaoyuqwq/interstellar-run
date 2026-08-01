@@ -1,4 +1,6 @@
 import { W, H, GROUND_Y, MAX_SPEED, START_SPEED, MAX_LIVES, NARRATIVE_TEXTS } from '../utils/constants';
+import { rectOverlap } from '../utils/math';
+import { OVERCLOCK_THRESHOLD, OVERCLOCK_SPEED_BONUS } from '../utils/overclock';
 import { Pool } from './Pool';
 import { Player } from '../entities/Player';
 import { Obstacle } from '../entities/Obstacle';
@@ -68,6 +70,10 @@ export class Game {
   private bossIndex = 0;
   private projectilePool: Pool<Projectile>;
   private tilemap: Tilemap;
+  private bossHud: HTMLElement;
+  private bossHpFill: HTMLElement;
+  private bossPhaseEl: HTMLElement;
+  private bossNameEl: HTMLElement;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -103,6 +109,10 @@ export class Game {
     this.projectilePool = new Pool(() => new Projectile(), 30);
     this.boss = new Boss();
     this.tilemap = new Tilemap();
+    this.bossHud = document.getElementById('boss-hud')!;
+    this.bossHpFill = document.getElementById('boss-hp-fill')!;
+    this.bossPhaseEl = document.getElementById('boss-phase')!;
+    this.bossNameEl = document.getElementById('boss-name')!;
 
     this.setupInput();
   }
@@ -250,6 +260,9 @@ export class Game {
     this.player.reset();
     this.spawner.reset();
     this.tilemap.reset();
+    /* Boss inactive until its first encounter — no ghost boss on screen */
+    this.boss.active = false;
+    this.bossHud.classList.add('hidden');
 
     /* Apply skill bonuses */
     const spdBonus = (this.skillLevels.speed_start || 0) * 0.1;
@@ -300,9 +313,9 @@ export class Game {
 
     /* Overclock mode */
     const wasOverclocked = this.player.overclocked;
-    this.player.overclocked = this.comboCount >= 15 && this.state === 'playing';
+    this.player.overclocked = this.comboCount >= OVERCLOCK_THRESHOLD && this.state === 'playing';
     if (this.player.overclocked && !wasOverclocked) {
-      this.speed *= 1.1;
+      this.speed *= 1 + OVERCLOCK_SPEED_BONUS;
       Audio.setOverclock(true);
     } else if (!this.player.overclocked && wasOverclocked) {
       Audio.setOverclock(false);
@@ -366,6 +379,80 @@ export class Game {
 
     if (this.bossFight) {
       this.updateBossFight(t);
+
+      /* Combat stays live while the world is frozen: projectiles, sword, stomp, bullets */
+      this.projectilePool.forEachActive(p => p.update(t));
+
+      const px = this.player.x - this.player.w / 2;
+      const py = this.player.y - this.player.h;
+      const bx = this.boss.x - this.boss.w / 2;
+      const by = this.boss.y - this.boss.h / 2;
+
+      /* Striker projectiles → boss */
+      this.projectilePool.forEachActive(p => {
+        if (p.x + p.r > bx && p.x - p.r < bx + this.boss.w &&
+            p.y + p.r > by && p.y - p.r < by + this.boss.h) {
+          p.active = false;
+          const dead = this.boss.takeDamage(1 + (this.skillLevels.bullet_damage || 0));
+          this.spawnParticles(p.x, p.y, 6, '#ffd700', 80, 0.3, 3);
+          if (dead) this.onBossDefeated();
+        }
+      });
+      if (this.state !== 'playing') return;
+
+      /* Tank sword → boss */
+      const swordHit = this.player.getSwordHitbox();
+      if (swordHit && rectOverlap(swordHit.x, swordHit.y, swordHit.w, swordHit.h, bx, by, this.boss.w, this.boss.h)) {
+        const dead = this.boss.takeDamage(2);
+        this.spawnParticles(this.boss.x, this.boss.y - this.boss.h / 2, 8, '#ffd700', 80, 0.3, 3);
+        if (dead) this.onBossDefeated();
+      }
+      if (this.state !== 'playing') return;
+
+      /* Boss body — stomp from above deals damage */
+      if (rectOverlap(px, py, this.player.w, this.player.h, bx, by, this.boss.w, this.boss.h)) {
+        if (this.player.vy > 0 && py + this.player.h < by + this.boss.h * 0.25) {
+          this.player.vy = -400;
+          this.score += 200;
+          this.screenShake = 8;
+          this.timeMultiplier = 0.05;
+          Audio.stomp();
+          Audio.duckBGM();
+          this.spawnParticles(this.boss.x, this.boss.y - this.boss.h / 2, 20, '#ff6b6b', 200, 0.6, 5);
+          this.spawnShockwave(this.boss.x, this.boss.y - this.boss.h / 2, 80, '#ff6b6b');
+          const dead = this.boss.takeDamage(1);
+          const pop = this.popupPool.spawn();
+          if (pop) { pop.x = this.boss.x; pop.y = this.boss.y - 30; pop.text = dead ? '💥 节点攻破!' : '-1 HP'; pop.life = 1.2; pop.color = '#ffd700'; }
+          if (dead) { this.onBossDefeated(); return; }
+          if (this.boss.state === 'transition') {
+            Audio.powerup();
+            this.screenShake = 14;
+            this.spawnParticles(this.boss.x, this.boss.y - this.boss.h / 2, 30, '#ffd700', 250, 0.8, 6);
+          }
+        } else if (this.player.invincible <= 0) {
+          this.die();
+          return;
+        }
+      }
+
+      /* Boss bullets → player */
+      let bulletHit = false;
+      const cx = this.player.x, cy = this.player.y - this.player.h / 2;
+      this.bulletPool.forEachActive(b => {
+        const dx = cx - b.x, dy = cy - b.y;
+        if (dx * dx + dy * dy < (this.player.w * 0.35 + b.r) ** 2) {
+          b.active = false;
+          if (this.player.invincible <= 0) bulletHit = true;
+        }
+      });
+      if (bulletHit) { this.die(); return; }
+
+      /* FX stays alive during the fight */
+      this.particlePool.forEachActive(p => p.update(t));
+      this.popupPool.forEachActive(p => p.update(t));
+      this.shockwavePool.forEachActive(p => p.update(t));
+      this.screenShake *= Math.max(0, 1 - t * 6);
+
       this.hud.update(this.score, this.distance, this.speed, this.comboCount,
         this.lives, MAX_LIVES, this.player.powerups);
       return;
@@ -647,7 +734,7 @@ export class Game {
       const p = this.projectilePool.spawn();
       if (!p) break;
       p.x = this.player.x + 20;
-      p.y = this.player.y - this.player.h / 2;
+      p.y = this.player.y - this.player.h * 0.85;
       p.r = r * (count > 1 ? 0.7 : 1);
       if (count > 1) {
         const angle = (i - 1) * 0.25;
@@ -712,9 +799,8 @@ export class Game {
     this.boss.hp = this.boss.maxHp;
     this.bulletPool.forEachActive(b => b.active = false);
     this.speed = 0;
-    const bh = document.getElementById('boss-hud')!;
-    bh.classList.remove('hidden');
-    document.getElementById('boss-name')!.textContent = `⚠ AI 守卫 v${this.bossEncounterCount}.0`;
+    this.bossHud.classList.remove('hidden');
+    this.bossNameEl.textContent = `⚠ AI 守卫 v${this.bossEncounterCount}.0`;
   }
 
   private updateBossFight(t: number): void {
@@ -728,11 +814,10 @@ export class Game {
 
     /* Boss HUD */
     const hpPct = Math.max(0, (this.boss.hp / this.boss.maxHp) * 100);
-    const hpFill = document.getElementById('boss-hp-fill')!;
-    hpFill.style.width = hpPct + '%';
-    document.getElementById('boss-phase')!.textContent = `PHASE ${this.boss.phase}`;
+    this.bossHpFill.style.width = hpPct + '%';
+    this.bossPhaseEl.textContent = `PHASE ${this.boss.phase}`;
     const colors = ['#00c8ff', '#ffd700', '#ff6b6b'];
-    hpFill.style.background = colors[this.boss.phase - 1];
+    this.bossHpFill.style.background = colors[this.boss.phase - 1];
   }
 
   private onBossDefeated(): void {
@@ -741,7 +826,7 @@ export class Game {
     this.bossFight = false;
     this.bossIndex++;
     this.stats.bossKills++;
-    document.getElementById('boss-hud')!.classList.add('hidden');
+    this.bossHud.classList.add('hidden');
     this.state = 'reward';
 
     /* Offer blessings relevant to current character */
