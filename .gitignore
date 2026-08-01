@@ -1,0 +1,18 @@
+# Dependencies & build output
+node_modules/
+dist/
+
+# Local dev/test scripts
+*.py
+*.log
+
+# Design documents (keep local, not in repo)
+*.docx
+
+# Source art pack (licensed asset source, not needed to build/run)
+public/assets/warped_city/
+public/assets/warped_city.zip
+
+# OS junk
+Thumbs.db
+.DS_Store

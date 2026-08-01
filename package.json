@@ -1,0 +1,15 @@
+{
+  "name": "interstellar-run",
+  "version": "1.0.0",
+  "description": "A cyberpunk-style side-scrolling runner built with HTML5 Canvas + TypeScript",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  }
+}
