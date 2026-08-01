@@ -1,5 +1,10 @@
 import { AssetManager } from '../systems/AssetManager';
 
+/* Resolve asset paths against the deploy base (Vite base for GitHub Pages subpath) */
+export function assetUrl(p: string): string {
+  return import.meta.env.BASE_URL + p.replace(/^\//, '');
+}
+
 const ATLAS_KEY = 'game_atlas';
 let atlasData: AtlasData | null = null;
 
@@ -13,9 +18,9 @@ interface AtlasData {
 }
 
 export async function loadAtlas(): Promise<void> {
-  await AssetManager.load('/assets/sprites/atlas.png', ATLAS_KEY);
+  await AssetManager.load(assetUrl('/assets/sprites/atlas.png'), ATLAS_KEY);
   try {
-    const resp = await fetch('/assets/sprites/atlas.json');
+    const resp = await fetch(assetUrl('/assets/sprites/atlas.json'));
     const raw = await resp.json();
     const frames: Record<string, AtlasFrame> = {};
     for (const f of raw.frames) {
@@ -200,7 +205,7 @@ const TILE_SRC: Record<string, { sx: number; sy: number }> = {
 };
 
 export async function loadTileset(): Promise<void> {
-  await AssetManager.load('/assets/sprites/tileset.png', TILESET_KEY);
+  await AssetManager.load(assetUrl('/assets/sprites/tileset.png'), TILESET_KEY);
 }
 
 export function drawTile(
@@ -374,7 +379,7 @@ export function drawJetFlame(
 const BG_KEYS = ['bg-1','bg-2','bg-3','skyline-a','skyline-b','buildings-bg','near-buildings-bg'];
 
 export async function loadBackgrounds(): Promise<void> {
-  const base = '/assets/sprites/';
+  const base = assetUrl('/assets/sprites/');
   const files = ['bg-1.png','bg-2.png','bg-3.png','skyline-a.png','skyline-b.png',
     'buildings-bg.png','near-buildings-bg.png'];
   await Promise.all(files.map(f => AssetManager.load(base + f, f.replace('.png', ''))));

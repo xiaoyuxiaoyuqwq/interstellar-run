@@ -44,11 +44,13 @@ async function decodePending(): Promise<void> {
 }
 
 export async function loadAudioAssets(): Promise<void> {
+  const base = (import.meta.env.BASE_URL as string).replace(/\/$/, '');
+  const p = (f: string) => base + '/assets/audio/' + f;
   await Promise.all([
-    loadOgg('bgm', '/assets/audio/sci_fi_platformer02.ogg'),
-    loadOgg('beam', '/assets/audio/beam.ogg'),
-    loadOgg('explosion', '/assets/audio/explosion.ogg'),
-    loadOgg('hurt', '/assets/audio/hurt.ogg'),
+    loadOgg('bgm', p('sci_fi_platformer02.ogg')),
+    loadOgg('beam', p('beam.ogg')),
+    loadOgg('explosion', p('explosion.ogg')),
+    loadOgg('hurt', p('hurt.ogg')),
   ]);
 }
 
